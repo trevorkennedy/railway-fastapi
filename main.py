@@ -7,7 +7,7 @@ import pathlib
 from os import getenv, path, makedirs
 from dotenv import load_dotenv
 from psycopg2 import connect, Error
-from psycopg2.sql import Identifier, SQL, Composed
+from psycopg2.sql import Identifier, SQL
 
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
@@ -22,29 +22,25 @@ app = FastAPI()
 
 
 def pg_connection():
-    # Connect to your postgres DB
     return connect(database=getenv('PGDATABASE'),
         host=getenv('PGHOST'),
         user=getenv('PGUSER'),
         password=getenv('PGPASSWORD'),
         port=getenv('PGPORT'),
         options=f"-c search_path={getenv('PGSCHEMA')}",
-        sslmode='require',
+        sslmode=getenv('PGSQLMODE'),
+        sslrootcert=getenv('PGROOTCERT'),
         connect_timeout=3)
 
 
 @app.get("/")
 async def root():
-    response = {
-        "count": -1
-    }
+    response = {"count": -1}
 
     try:
-        with connect(getenv('DATABASE_URL')).cursor() as cur:
+        with pg_connection().cursor() as cur:
             cur.execute("SELECT now()")
             response['time'] = cur.fetchone()[0].isoformat()
-
-        with pg_connection().cursor() as cur:
             cur.execute(SQL("SELECT count(*) FROM {}").format(Identifier(table_name)))
             response['count'] = cur.fetchone()[0]
     except Error as err:
