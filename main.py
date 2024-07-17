@@ -1,7 +1,7 @@
 from http import HTTPStatus
 from typing import Annotated
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 import uuid
 import pathlib
 from os import getenv, path, makedirs
@@ -53,7 +53,11 @@ async def root():
 
 @app.get("/file/{name}")
 async def say_hello(name: str):
-    return FileResponse(path=f"{dir_name}/{name}", status_code=HTTPStatus.OK)
+    file_path = f"{dir_name}/{name}"
+    if path.exists(file_path):
+        return FileResponse(path=file_path, status_code=HTTPStatus.OK)
+    else:
+        return Response(status_code=HTTPStatus.NOT_FOUND)
 
 
 @app.post("/files/")
