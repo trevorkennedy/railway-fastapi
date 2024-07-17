@@ -3,16 +3,48 @@ from typing import Annotated
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 import uuid
-import os
 import pathlib
+from os import getenv, path, makedirs
+from dotenv import load_dotenv
+from psycopg2 import connect, Error
 
-dir_name = "uploads"  # store uploaded image in this folder
+dir_name = "uploads" # store uploaded image in this folder
+table_name = "galen_agency.uploads" # Postgres table name
+
+
+load_dotenv()
+
+# Makre sure uploads dir exists
+if not path.exists(dir_name):
+     makedirs(dir_name)
 
 app = FastAPI()
 
+
 @app.get("/")
 async def root():
-    return {"greeting": "Hello, World!"}
+    count = -1
+
+    try:
+        # Connect to your postgres DB
+        conn = connect(database=getenv('PGDATABASE'),
+                        host=getenv('PGHOST'),
+                        user=getenv('PGUSER'),
+                        password=getenv('PGPASSWORD'),
+                        port=getenv('PGPORT'),
+                        sslmode='require',
+                        connect_timeout=3)
+
+        # Open a cursor to perform database operations
+        cur = conn.cursor()
+        cur.execute(f"SELECT * FROM {table_name}")
+        records = cur.fetchall()
+        count = len(records)
+    except Error as err:
+        print ("Oops! An exception has occured:", err)
+        print ("Exception TYPE:", type(err))
+
+    return JSONResponse(status_code=HTTPStatus.OK, content={"count": count})
 
 
 @app.get("/file/{name}")
@@ -29,8 +61,7 @@ async def create_file(
     file_extension = pathlib.Path(file.filename).suffix
     new_name = f'{guid}{file_extension}'
 
-    if not os.path.exists(dir_name):
-        os.makedirs(dir_name)
+    
 
     # save the file
     with open(f"{dir_name}/{new_name}", "wb") as f:
