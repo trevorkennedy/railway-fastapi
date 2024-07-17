@@ -24,6 +24,7 @@ app = FastAPI()
 @app.get("/")
 async def root():
     count = -1
+    msg = ''
 
     try:
         # Connect to your postgres DB
@@ -42,9 +43,10 @@ async def root():
         count = len(records)
     except Error as err:
         print ("Oops! An exception has occured:", err)
+        msg = type(err)
         print ("Exception TYPE:", type(err))
 
-    return JSONResponse(status_code=HTTPStatus.OK, content={"count": count})
+    return JSONResponse(status_code=HTTPStatus.OK, content={"count": count, "message": msg})
 
 
 @app.get("/file/{name}")
