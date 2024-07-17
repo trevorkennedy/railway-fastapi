@@ -36,11 +36,14 @@ def pg_connection():
 @app.get("/")
 async def root():
     response = {
-        "count": -1,
-        "message": ''
+        "count": -1
     }
 
     try:
+        with connect(getenv('DATABASE_URL')).cursor() as cur:
+            cur.execute("SELECT now()")
+            response['time'] = cur.fetchone()[0].isoformat()
+
         with pg_connection().cursor() as cur:
             cur.execute(SQL("SELECT count(*) FROM {}").format(Identifier(table_name)))
             response['count'] = cur.fetchone()[0]
