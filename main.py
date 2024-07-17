@@ -1,10 +1,12 @@
 from http import HTTPStatus
 from typing import Annotated
-from fastapi import FastAPI, File, Form, UploadFile, status
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 import uuid
 import os
 import pathlib
+
+dir_name = "uploads"  # store uploaded image in this folder
 
 app = FastAPI()
 
@@ -15,7 +17,7 @@ async def root():
 
 @app.get("/file/{name}")
 async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
+    return FileResponse(path=f"{dir_name}/{name}", status_code=HTTPStatus.OK)
 
 
 @app.post("/files/")
@@ -27,7 +29,6 @@ async def create_file(
     file_extension = pathlib.Path(file.filename).suffix
     new_name = f'{guid}{file_extension}'
 
-    dir_name = "uploads"  # store uploaded image in this folder
     if not os.path.exists(dir_name):
         os.makedirs(dir_name)
 
