@@ -1,3 +1,4 @@
+import ast
 from http import HTTPStatus
 from typing import Annotated
 from fastapi import FastAPI, File, Form, UploadFile
@@ -12,9 +13,23 @@ from dotenv import load_dotenv
 from psycopg2 import connect, Error
 from psycopg2.sql import Identifier, SQL
 from mailersend import emails
+from hubspot_helper import save_hubspot_contact, get_contact_by_email
 
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
+contact_data = {
+    'email': 'trieu@example.com',
+    'firstname': 'Trieu',
+    'lastname': 'Nguyen',
+    'phone': '555-555-5555',
+    'jobtitle': 'Engineer',
+    'lifecyclestage': 'lead',
+    "zip": "99999",
+    "company": "Acme Inc",
+    "industry": "Tech",
+    "country": "US",
+    "type": "Job Seeker"
+}
 
 load_dotenv()
 
@@ -86,8 +101,13 @@ def get_metadata(key):
 async def root():
     response = {
         "count": -1, 
-        "node": platform.uname().node
+        "node": platform.uname().node,
+        "emails": ast.literal_eval(getenv('MAILER_ENABLED')),
+        "id": get_contact_by_email('test@example.org')
     }
+
+    contact_id = save_hubspot_contact(contact_data)
+    # save_hubspot_note(contact_id, html)
 
     try:
         with pg_connection().cursor() as cur:
@@ -151,10 +171,10 @@ async def create_file(
         print ("Exception TYPE:", type(err))
 
     # Send email
-    share_url = f'https://api.galen.agency/file/{new_name}'
-    html = f'<p>Contact form submission</p><p>File: {share_url}</p><p>{platform.uname().node}</p>'
-    send_email('Form submission', html)
-    # save_hubspot_note(contact_id, html)
+    if ast.literal_eval(getenv('MAILER_ENABLED')):
+        share_url = f'https://api.galen.agency/file/{new_name}'
+        html = f'<p>Contact form submission</p><p>File: {share_url}</p><p>{platform.uname().node}</p>'
+        send_email('Form submission', html)
 
     response = {
         "size": file.size,
