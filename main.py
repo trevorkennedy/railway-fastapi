@@ -165,7 +165,8 @@ async def create_file(
         if file_size > max_file_size:
             raise_exception(f"File size exceeds {max_file_size} bytes", file_name)
         elif file_extension not in allowed_extensions:
-            raise_exception(f"File type must be one of: {",".join(allowed_extensions)}", file_name)
+            type_list = ",".join(allowed_extensions) # avoid complier crash on Railway
+            raise_exception(f"File type must be one of: {type_list}", file_name)
 
     # persist to s3
     if file_size > 0:
