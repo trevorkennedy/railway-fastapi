@@ -1,18 +1,17 @@
 from http import HTTPStatus
 from typing import Annotated
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 import uuid
 import pathlib
+import platform
 import boto3
-import io
-import os
 from botocore.exceptions import ClientError
 from os import getenv, path, makedirs
 from dotenv import load_dotenv
 from psycopg2 import connect, Error
 from psycopg2.sql import Identifier, SQL
-from tempfile import NamedTemporaryFile, TemporaryFile
+from mailersend import emails
 
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
@@ -24,6 +23,29 @@ if not path.exists(dir_name):
      makedirs(dir_name)
 
 app = FastAPI()
+
+
+def send_email(subject, message):
+    mail_body = {}
+
+    mail_from = {
+        "name": getenv('MAILER_FROM_NAME'),
+        "email": getenv('MAILER_FROM'),
+    }
+
+    recipients = [
+        {
+            "email": getenv('MAILER_TO'),
+        }
+    ]
+
+    mailer = emails.NewEmail(getenv("MAILER_KEY"))
+    mailer.set_mail_from(mail_from, mail_body)
+    mailer.set_reply_to(mail_from, mail_body)
+    mailer.set_mail_to(recipients, mail_body)
+    mailer.set_subject(subject, mail_body)
+    mailer.set_html_content(message, mail_body)
+    return mailer.send(mail_body)
 
 
 def pg_connection():
@@ -124,6 +146,12 @@ async def create_file(
         print ("An exception has occured:", err)
         response['message'] = str(type(err))
         print ("Exception TYPE:", type(err))
+
+    # Send email
+    share_url = f'https://api.galen.agency/file/{new_name}'
+    html = f'<p>Contact form submission</p><p>File: {share_url}</p><p>{platform.uname().node}</p>'
+    send_email('Form submission', html)
+    # save_hubspot_note(contact_id, html)
 
     response = {
         "size": file.size,
