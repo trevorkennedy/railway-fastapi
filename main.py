@@ -32,21 +32,15 @@ if not path.exists(dir_name):
 
 app = FastAPI()
 
-origins = [
-    "https://galen.agency",
-    "https://www.galen.agency",
-    "http://localhost",
-    "http://localhost:4321",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=['*'],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+headers = {'Access-Control-Allow-Origin': '*'}
 
 def send_email(subject: str, message: str):
     mail_body = {}
@@ -157,7 +151,7 @@ def raise_exception(msg: str, input: str):
             "input": input,
             "url": "https://errors.pydantic.dev/2.8/v/value_error"
         }
-    raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=[error])
+    raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=[error], headers=headers)
 
 @app.post("/files/")
 async def create_file(
@@ -171,8 +165,8 @@ async def create_file(
     new_name = None
     content_type = None
     guid = str(uuid.uuid4())
-    file_size = file.size
-    file_name = file.filename
+    file_size = -1 if file is None else file.size
+    file_name = file.filename if file is None else ''
 
     if file_size > 0:
         content_type = file.content_type
@@ -180,9 +174,9 @@ async def create_file(
         new_name = f'{guid}{file_extension}'
         if file_size > max_file_size:
             raise_exception(f"File size exceeds {max_file_size} bytes", file_name)
-        elif file_extension not in allowed_extensions:
-            type_list = ",".join(allowed_extensions) # avoid complier crash on Railway
-            raise_exception(f"File type must be one of: {type_list}", file_name)
+        # elif file_extension not in allowed_extensions:
+        #     type_list = ",".join(allowed_extensions) # avoid complier crash on Railway
+        #     raise_exception(f"File type must be one of: {type_list}", file_name)
 
     # persist to s3
     if file_size > 0:
@@ -226,4 +220,6 @@ async def create_file(
     if ast.literal_eval(getenv('MAILER_ENABLED')):
         send_email('Form submission', html)
 
-    return Response(status_code=HTTPStatus.OK)
+    
+
+    return Response(status_code=HTTPStatus.OK, headers=headers)
