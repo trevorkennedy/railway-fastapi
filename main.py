@@ -84,7 +84,10 @@ def get_metadata(key):
 
 @app.get("/")
 async def root():
-    response = {"count": -1}
+    response = {
+        "count": -1, 
+        "node": platform.uname().node
+    }
 
     try:
         with pg_connection().cursor() as cur:
