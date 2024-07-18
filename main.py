@@ -3,6 +3,7 @@ from http import HTTPStatus
 from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 import uuid
 import pathlib
 import platform
@@ -30,6 +31,21 @@ if not path.exists(dir_name):
      makedirs(dir_name)
 
 app = FastAPI()
+
+origins = [
+    "https://galen.agency",
+    "https://www.galen.agency",
+    "http://localhost",
+    "http://localhost:4321",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def send_email(subject: str, message: str):
