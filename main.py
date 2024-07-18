@@ -3,9 +3,8 @@ from http import HTTPStatus
 from typing import Annotated
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
 import uuid
-import pathlib
+# import pathlib
 import platform
 import boto3
 from botocore.exceptions import ClientError
@@ -31,15 +30,6 @@ if not path.exists(dir_name):
      makedirs(dir_name)
 
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 headers = {'Access-Control-Allow-Origin': '*'}
 
 def send_email(subject: str, message: str):
@@ -166,11 +156,11 @@ async def create_file(
     content_type = None
     guid = str(uuid.uuid4())
     file_size = -1 if file is None else file.size
-    file_name = file.filename if file is None else ''
+    file_name = '' if file is None else file.filename
 
     if file_size > 0:
         content_type = file.content_type
-        file_extension = pathlib.Path(file_name).suffix
+        file_extension = '' # pathlib.Path(file_name).suffix
         new_name = f'{guid}{file_extension}'
         if file_size > max_file_size:
             raise_exception(f"File size exceeds {max_file_size} bytes", file_name)
