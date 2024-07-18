@@ -1,6 +1,7 @@
 import ast
 from http import HTTPStatus
-from typing import Annotated
+from typing import Annotated, Optional
+import typing
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 import uuid
@@ -13,23 +14,12 @@ from dotenv import load_dotenv
 from psycopg2 import connect, Error
 from psycopg2.sql import Identifier, SQL
 from mailersend import emails
-from hubspot_helper import save_hubspot_contact, get_contact_by_email
+from hubspot_helper import save_hubspot_contact, get_contact_by_email, save_hubspot_note
 
+lead_type_regex = r"^(candidate|employer|other)$"
+email_regex = r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
-contact_data = {
-    'email': 'trieu@example.com',
-    'firstname': 'Trieu',
-    'lastname': 'Nguyen',
-    'phone': '555-555-5555',
-    'jobtitle': 'Engineer',
-    'lifecyclestage': 'lead',
-    "zip": "99999",
-    "company": "Acme Inc",
-    "industry": "Tech",
-    "country": "US",
-    "type": "Job Seeker"
-}
 
 load_dotenv()
 
@@ -40,7 +30,7 @@ if not path.exists(dir_name):
 app = FastAPI()
 
 
-def send_email(subject, message):
+def send_email(subject: str, message: str):
     mail_body = {}
 
     mail_from = {
@@ -106,9 +96,6 @@ async def root():
         "id": get_contact_by_email('test@example.org')
     }
 
-    contact_id = save_hubspot_contact(contact_data)
-    # save_hubspot_note(contact_id, html)
-
     try:
         with pg_connection().cursor() as cur:
             cur.execute("SELECT now()")
@@ -144,12 +131,15 @@ async def say_hello(name: str):
 @app.post("/files/")
 async def create_file(
     file: Annotated[UploadFile, File()],
-    token: Annotated[str, Form()],
+    email: Annotated[str, Form(max_length=50, regex=email_regex)],
+    first_name: Annotated[str, Form(max_length=50)],
+    last_name: Annotated[str, Form(max_length=50)],
+    lead_type: Annotated[str, Form(max_length=50, regex=lead_type_regex)],
+    phone: Annotated[str, Form(max_length=50)] = None
 ):
     guid = str(uuid.uuid4())
     file_extension = pathlib.Path(file.filename).suffix
     new_name = f'{guid}{file_extension}'
-    new_token = guid if token == '' else token[:50]
 
     # persist to s3
     try:
@@ -162,7 +152,7 @@ async def create_file(
         with pg_connection() as conn:
             with conn.cursor() as cur:
                 sql = "INSERT INTO {} (id, token, file_name, content_type, file_size) VALUES (%s, %s, %s, %s, %s)"
-                vals = (guid, new_token, new_name, file.content_type, file.size)
+                vals = (guid, email, new_name, file.content_type, file.size)
                 cur.execute(SQL(sql).format(Identifier(table_name)), vals)
             conn.commit()
     except Error as err:
@@ -171,16 +161,34 @@ async def create_file(
         print ("Exception TYPE:", type(err))
 
     # Send email
+    share_url = f'https://api.galen.agency/file/{new_name}'
+    html = f'<p>Contact form submission</p><p>File: {share_url}</p><p>{platform.uname().node}</p>'
+
     if ast.literal_eval(getenv('MAILER_ENABLED')):
-        share_url = f'https://api.galen.agency/file/{new_name}'
-        html = f'<p>Contact form submission</p><p>File: {share_url}</p><p>{platform.uname().node}</p>'
         send_email('Form submission', html)
+
+    # Save to Hubspot
+    contact_data = {
+        'email': email,
+        'firstname': first_name,
+        'lastname': last_name,
+        'phone': phone,
+        'about_me': lead_type,
+        'lifecyclestage': 'lead'
+    }
+
+    contact_id = save_hubspot_contact(contact_data)
+    save_hubspot_note(contact_id, html)
 
     response = {
         "size": file.size,
         "name": file.filename,
         "new_name": new_name,
-        "token": new_token,
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "phone": phone,
+        "lead_type": lead_type,
         "content_type": file.content_type,
     }
 
