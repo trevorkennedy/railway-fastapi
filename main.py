@@ -1,7 +1,7 @@
 import ast
 from http import HTTPStatus
 from typing import Annotated
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 import uuid
 import pathlib
@@ -20,6 +20,8 @@ email_regex = r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
 file_url = "https://api.galen.agency/file/"
+allowed_extensions = ['.pdf', '.doc', '.docx', 'txt']
+max_file_size = 5 * 1000 * 1000
 
 load_dotenv()
 
@@ -128,6 +130,19 @@ async def say_hello(name: str):
     return Response(status_code=HTTPStatus.NOT_FOUND)
 
 
+def raise_exception(msg: str, input: str):
+    error = {
+            "type": "value_error",
+            "loc": [
+                "body",
+                "file"
+            ],
+            "msg": msg ,
+            "input": input,
+            "url": "https://errors.pydantic.dev/2.8/v/value_error"
+        }
+    raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=[error])
+
 @app.post("/files/")
 async def create_file(
     email: Annotated[str, Form(max_length=50, regex=email_regex)],
@@ -141,12 +156,16 @@ async def create_file(
     content_type = None
     guid = str(uuid.uuid4())
     file_size = file.size
+    file_name = file.filename
 
-    #TODO: file type checking
     if file_size > 0:
         content_type = file.content_type
-        file_extension = pathlib.Path(file.filename).suffix
+        file_extension = pathlib.Path(file_name).suffix
         new_name = f'{guid}{file_extension}'
+        if file_size > max_file_size:
+            raise_exception(f"File size exceeds {max_file_size} bytes", file_name)
+        elif file_extension not in allowed_extensions:
+            raise_exception(f"File type must be one of: {",".join(allowed_extensions)}", file_name)
 
     # persist to s3
     if file_size > 0:
@@ -183,7 +202,7 @@ async def create_file(
         html += f"<p>File: {file_url}{new_name}</p>"
     else:
         html += f"<p>File: no file attchment</p>"
-    html += f"<p>{platform.uname().node}</p>"
+    html += f"<p>Node: {platform.uname().node}</p>"
     
     # Send email 
     save_hubspot_note(contact_id, html)
