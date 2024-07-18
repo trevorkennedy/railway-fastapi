@@ -1,13 +1,18 @@
 from http import HTTPStatus
 from typing import Annotated
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 import uuid
 import pathlib
+import boto3
+import io
+import os
+from botocore.exceptions import ClientError
 from os import getenv, path, makedirs
 from dotenv import load_dotenv
 from psycopg2 import connect, Error
 from psycopg2.sql import Identifier, SQL
+from tempfile import NamedTemporaryFile, TemporaryFile
 
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
@@ -33,6 +38,28 @@ def pg_connection():
         connect_timeout=3)
 
 
+def s3_client():
+    return boto3.client(
+        service_name="s3",
+        endpoint_url=getenv('S3ENDPOINT'),
+        aws_access_key_id=getenv('S3ACCESSKEY'),
+        aws_secret_access_key=getenv('S3SECRETKEY'),
+        region_name=getenv('S3REGION'),
+    )
+
+def get_metadata(key):
+    res = s3_client().list_objects_v2(Bucket=getenv('S3BUCKET'), Prefix=key, MaxKeys=1)
+    size = res['Contents'][0]['Size'] if 'Contents' in res else -1
+    content_type = ''
+
+    if size >= 0:
+        object_information = s3_client().head_object(Bucket=getenv('S3BUCKET'), Key=key)
+        if 'content-type' in object_information['ResponseMetadata']['HTTPHeaders']:
+            content_type = object_information['ResponseMetadata']['HTTPHeaders']['content-type']
+
+    return size, content_type
+
+
 @app.get("/")
 async def root():
     response = {"count": -1}
@@ -53,11 +80,20 @@ async def root():
 
 @app.get("/file/{name}")
 async def say_hello(name: str):
-    file_path = f"{dir_name}/{name}"
-    if path.exists(file_path):
-        return FileResponse(path=file_path, status_code=HTTPStatus.OK)
-    else:
-        return Response(status_code=HTTPStatus.NOT_FOUND)
+    try:
+        local_name = path.join(dir_name, 'temp')
+        size, content_type = get_metadata(name)
+
+        if size > 0:
+            s3_client().download_file(getenv('S3BUCKET'), name, local_name)        
+            return FileResponse(path=local_name, 
+                                    status_code=HTTPStatus.OK, 
+                                    headers={'Content-Type': content_type},
+                                    content_disposition_type=f'attachment; filename="{name}"')
+    except ClientError as e:
+        print(e)
+
+    return Response(status_code=HTTPStatus.NOT_FOUND)
 
 
 @app.post("/files/")
@@ -65,22 +101,23 @@ async def create_file(
     file: Annotated[UploadFile, File()],
     token: Annotated[str, Form()],
 ):
-    guid = uuid.uuid4()
+    guid = str(uuid.uuid4())
     file_extension = pathlib.Path(file.filename).suffix
     new_name = f'{guid}{file_extension}'
     new_token = guid if token == '' else token[:50]
 
-    # save the file
-    with open(f"{dir_name}/{new_name}", "wb") as f:
-        contents = await file.read()
-        f.write(contents)
+    # persist to s3
+    try:
+        s3_client().upload_fileobj(file.file, getenv('S3BUCKET'), new_name, ExtraArgs={'ContentType': file.content_type})
+    except ClientError as e:
+        print(e)
 
     # create database entry
     try:
         with pg_connection() as conn:
             with conn.cursor() as cur:
-                sql = "INSERT INTO {} (token, file_name, content_type, file_size) VALUES (%s, %s, %s, %s)"
-                vals = (new_token, new_name, file.content_type, file.size)
+                sql = "INSERT INTO {} (id, token, file_name, content_type, file_size) VALUES (%s, %s, %s, %s, %s)"
+                vals = (guid, new_token, new_name, file.content_type, file.size)
                 cur.execute(SQL(sql).format(Identifier(table_name)), vals)
             conn.commit()
     except Error as err:
