@@ -1,7 +1,6 @@
 import ast
 from http import HTTPStatus
-from typing import Annotated, Optional
-import typing
+from typing import Annotated
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 import uuid
@@ -20,6 +19,7 @@ lead_type_regex = r"^(candidate|employer|other)$"
 email_regex = r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
 dir_name = "uploads" # store uploaded image in this folder
 table_name = "uploads" # Postgres table name
+file_url = "https://api.galen.agency/file/"
 
 load_dotenv()
 
@@ -93,7 +93,7 @@ async def root():
         "count": -1, 
         "node": platform.uname().node,
         "emails": ast.literal_eval(getenv('MAILER_ENABLED')),
-        "id": get_contact_by_email('test@example.org')
+        "id": get_contact_by_email('test@example.org'),
     }
 
     try:
@@ -130,43 +130,42 @@ async def say_hello(name: str):
 
 @app.post("/files/")
 async def create_file(
-    file: Annotated[UploadFile, File()],
     email: Annotated[str, Form(max_length=50, regex=email_regex)],
     first_name: Annotated[str, Form(max_length=50)],
     last_name: Annotated[str, Form(max_length=50)],
     lead_type: Annotated[str, Form(max_length=50, regex=lead_type_regex)],
-    phone: Annotated[str, Form(max_length=50)] = None
+    phone: Annotated[str, Form(max_length=50)] = None,
+    file: Annotated[UploadFile, File()] = None
 ):
+    new_name = None
+    content_type = None
     guid = str(uuid.uuid4())
-    file_extension = pathlib.Path(file.filename).suffix
-    new_name = f'{guid}{file_extension}'
+    file_size = file.size
 
-    #TODO: file size and type checking
+    #TODO: file type checking
+    if file_size > 0:
+        content_type = file.content_type
+        file_extension = pathlib.Path(file.filename).suffix
+        new_name = f'{guid}{file_extension}'
 
     # persist to s3
-    try:
-        s3_client().upload_fileobj(file.file, getenv('S3BUCKET'), new_name, ExtraArgs={'ContentType': file.content_type})
-    except ClientError as e:
-        print(e)
+    if file_size > 0:
+        try:
+            args = {} if content_type is None else {'ContentType': content_type}
+            s3_client().upload_fileobj(file.file, getenv('S3BUCKET'), new_name, ExtraArgs=args)
+        except ClientError as e:
+            print(e)
 
     # create database entry
     try:
         with pg_connection() as conn:
             with conn.cursor() as cur:
                 sql = "INSERT INTO {} (id, token, file_name, content_type, file_size) VALUES (%s, %s, %s, %s, %s)"
-                vals = (guid, email, new_name, file.content_type, file.size)
+                vals = (guid, email, new_name, content_type, file_size)
                 cur.execute(SQL(sql).format(Identifier(table_name)), vals)
             conn.commit()
     except Error as err:
         print ("An exception has occured:", err)
-
-    html = f"""<p>Contact form submission</p>
-        <p>File: https://api.galen.agency/file/{new_name}</p>
-        <p>{platform.uname().node}</p>"""
-
-    # Send email
-    if ast.literal_eval(getenv('MAILER_ENABLED')):
-        send_email('Form submission', html)
 
     # Save to Hubspot
     contact_data = {
@@ -177,8 +176,18 @@ async def create_file(
         'about_me': lead_type,
         'lifecyclestage': 'lead'
     }
-
     contact_id = save_hubspot_contact(contact_data)
+
+    html = "<p>Contact form submission</p>"
+    if file_size > 0:
+        html += f"<p>File: {file_url}{new_name}</p>"
+    else:
+        html += f"<p>File: no file attchment</p>"
+    html += f"<p>{platform.uname().node}</p>"
+    
+    # Send email 
     save_hubspot_note(contact_id, html)
+    if ast.literal_eval(getenv('MAILER_ENABLED')):
+        send_email('Form submission', html)
 
     return Response(status_code=HTTPStatus.OK)
