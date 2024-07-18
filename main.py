@@ -141,6 +141,8 @@ async def create_file(
     file_extension = pathlib.Path(file.filename).suffix
     new_name = f'{guid}{file_extension}'
 
+    #TODO: file size and type checking
+
     # persist to s3
     try:
         s3_client().upload_fileobj(file.file, getenv('S3BUCKET'), new_name, ExtraArgs={'ContentType': file.content_type})
@@ -157,13 +159,12 @@ async def create_file(
             conn.commit()
     except Error as err:
         print ("An exception has occured:", err)
-        response['message'] = str(type(err))
-        print ("Exception TYPE:", type(err))
+
+    html = f"""<p>Contact form submission</p>
+        <p>File: https://api.galen.agency/file/{new_name}</p>
+        <p>{platform.uname().node}</p>"""
 
     # Send email
-    share_url = f'https://api.galen.agency/file/{new_name}'
-    html = f'<p>Contact form submission</p><p>File: {share_url}</p><p>{platform.uname().node}</p>'
-
     if ast.literal_eval(getenv('MAILER_ENABLED')):
         send_email('Form submission', html)
 
@@ -180,16 +181,4 @@ async def create_file(
     contact_id = save_hubspot_contact(contact_data)
     save_hubspot_note(contact_id, html)
 
-    response = {
-        "size": file.size,
-        "name": file.filename,
-        "new_name": new_name,
-        "email": email,
-        "first_name": first_name,
-        "last_name": last_name,
-        "phone": phone,
-        "lead_type": lead_type,
-        "content_type": file.content_type,
-    }
-
-    return JSONResponse(status_code=HTTPStatus.OK, content=response)
+    return Response(status_code=HTTPStatus.OK)
