@@ -100,3 +100,15 @@ def save_hubspot_contact(contact_data):
         if e.status == 409:
             return None
     return None
+
+
+def save_hubspot_data(email, first_name, last_name, phone, lead_type):
+    contact_data = {
+        'email': email,
+        'firstname': first_name,
+        'lastname': last_name,
+        'phone': phone,
+        'about_me': lead_type,
+        'lifecyclestage': 'lead'
+    }
+    return save_hubspot_contact(contact_data)
