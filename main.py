@@ -70,10 +70,8 @@ async def create_file(
     data.last_name = last_name
     data.phone = phone
     data.email = email
-    return PlainTextResponse(
-        headers=headers,
-        status_code=HTTPStatus.OK,
-        content=data.process())
+    code, content = data.process()
+    return PlainTextResponse(headers=headers, status_code=code, content=content)
 
 
 @app.post("/submit/")
@@ -90,7 +88,5 @@ async def submit_form(request: Request):
         data.last_name = form.get('last_name')
         data.phone = form.get('phone')
         data.email = form.get('email')
-        return PlainTextResponse(
-            headers=headers,
-            status_code=HTTPStatus.OK,
-            content=data.process())
+        code, content = data.process()
+        return PlainTextResponse(headers=headers, status_code=code, content=content)

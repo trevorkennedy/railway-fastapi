@@ -3,6 +3,7 @@ import pathlib
 import uuid
 import re
 import platform
+from http import HTTPStatus
 from io import BytesIO
 from os import path, makedirs, getenv
 from urllib.parse import urljoin
@@ -139,7 +140,7 @@ class ContactForm:
                 and valid_str_len(self.phone, 0)
                 )
 
-    def process(self) -> str:
+    def process(self) -> (int, str):
         if self.valid():
             self.save_locally()
             new_name = self.remote_file_name()
@@ -154,6 +155,6 @@ class ContactForm:
             # Send email
             if ast.literal_eval(getenv('MAILER_ENABLED')):
                 send_email('Form submission', html)
-            return str(self)
+            return HTTPStatus.OK, str(self) + '|valid'
         else:
-            return 'Form not valid!'
+            return HTTPStatus.UNPROCESSABLE_ENTITY, str(self) + '|invalid'
